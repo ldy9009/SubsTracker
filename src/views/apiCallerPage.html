@@ -227,7 +227,7 @@
             定时调用（Keep-Alive）
           </h2>
           <p class="text-indigo-100 text-sm mt-2 md:ml-14">
-            每 10 分钟由 Cron 自动调用启用的目标，用于保活 Render 免费实例 / 写 Supabase 心跳；调用记录保留 7 天
+            Worker 每分钟检查一次，命中各目标自己的 cron 表达式即调用（可保活 Render 免费实例 / 写 Supabase 心跳）；调用记录保留 7 天
           </p>
         </div>
         <div class="flex flex-wrap gap-2 md:ml-14">
@@ -303,7 +303,7 @@
       <div class="px-5 pb-5">
         <div class="rounded-xl bg-indigo-50 text-indigo-900 text-xs px-4 py-3 leading-relaxed">
           <i class="fas fa-circle-info mr-1.5 text-indigo-500"></i>
-          Headers 每行一条 <code class="mono">Key: Value</code>（如 <code class="mono">Authorization: Bearer sk-xxx</code>）；Body 仅 POST/PUT/DELETE 生效；目标数量上限 50 个
+          Headers 每行一条 <code class="mono">Key: Value</code>（如 <code class="mono">Authorization: Bearer sk-xxx</code>）；Body 仅 POST/PUT/DELETE 生效；调度表达式非法时自动回退为每 10 分钟；目标数量上限 50 个
         </div>
       </div>
     </div>
@@ -395,9 +395,18 @@
           + '  </label>'
           + '  <button data-act="del" class="text-red-500 hover:text-red-700 text-sm font-medium transition px-2 py-1.5 rounded-lg hover:bg-red-50" title="删除该目标"><i class="fas fa-trash"></i></button>'
           + '</div>'
-          + '<div class="relative mb-2">'
+          + '<div class="relative mb-3">'
           + '  <i class="fas fa-link absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>'
           + '  <input data-f="url" value="' + escapeHtml(t.url) + '" placeholder="完整 URL，如 https://xxx.onrender.com/healthz" class="field-input mono pl-8">'
+          + '</div>'
+          + '<div class="mb-2">'
+          + '  <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-clock mr-1 text-gray-400"></i>调度表达式（分 时 日 月 周，按系统时区计算）</label>'
+          + '  <div class="flex flex-wrap gap-1.5 mb-1.5" data-role="presets">'
+          + [['每分钟', '* * * * *'], ['每 5 分钟', '*/5 * * * *'], ['每 10 分钟', '*/10 * * * *'], ['每 30 分钟', '*/30 * * * *'], ['每小时', '0 * * * *'], ['每天 8 点', '0 8 * * *']].map(p =>
+              '<button type="button" data-act="preset" data-cron="' + p[1] + '" class="text-xs px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">' + p[0] + '</button>'
+            ).join('')
+          + '  </div>'
+          + '  <input data-f="cron" value="' + escapeHtml(t.cron) + '" placeholder="*/10 * * * *" class="field-input mono">'
           + '</div>'
           + '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">'
           + '  <div>'
@@ -419,6 +428,12 @@
           targets.splice(idx, 1);
           renderTargets();
           toast('已移除目标（保存配置后生效）', true);
+        });
+      });
+      wrap.querySelectorAll('[data-act="preset"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const input = btn.closest('[data-idx]').querySelector('[data-f="cron"]');
+          if (input) input.value = btn.dataset.cron;
         });
       });
       wrap.querySelectorAll('select[data-f="method"]').forEach(sel => {
@@ -449,6 +464,7 @@
         targets[idx].name = get('name').value;
         targets[idx].url = get('url').value.trim();
         targets[idx].method = get('method').value;
+        targets[idx].cron = get('cron').value.trim() || '*/10 * * * *';
         targets[idx].headers = get('headers').value;
         targets[idx].body = get('body').value;
         targets[idx].enabled = get('enabled').checked;
@@ -656,7 +672,7 @@
       await loadLogs();
 
       document.getElementById('addBtn').addEventListener('click', () => {
-        targets.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: '', url: '', method: 'GET', headers: '', body: '', enabled: true });
+        targets.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: '', url: '', method: 'GET', cron: '*/10 * * * *', headers: '', body: '', enabled: true });
         renderTargets();
         const cards = document.querySelectorAll('#targetsWrap [data-idx]');
         const last = cards[cards.length - 1];

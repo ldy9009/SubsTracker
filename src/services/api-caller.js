@@ -13,6 +13,8 @@
  */
 
 import { getKVJson } from '../data/kv.js';
+import { getConfig } from '../data/config.js';
+import { cronMatches, isValidCron } from '../core/cron-match.js';
 
 const TARGETS_KEY = 'api_call_targets';
 const LOG_PREFIX = 'apicall_log:';
@@ -21,6 +23,8 @@ const TIMEOUT_MS = 15000;
 const MAX_LOGS = 500;
 const MAX_TARGETS = 50;
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE'];
+/** 目标未填 cron 时的默认调度：每 10 分钟 */
+export const DEFAULT_TARGET_CRON = '*/10 * * * *';
 
 /**
  * @typedef {Object} ApiCallTarget
@@ -30,6 +34,7 @@ const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE'];
  * @property {string} method
  * @property {string} headers 每行一条 "Key: Value"
  * @property {string} body
+ * @property {string} cron 5 字段 cron 表达式（非法时归一化为默认值）
  * @property {boolean} enabled
  */
 
@@ -52,6 +57,7 @@ export function normalizeTargets(raw) {
     if (seen.has(id)) continue;
     seen.add(id);
     const method = String(t.method || 'GET').toUpperCase();
+    const cron = String(t.cron || '').trim();
     out.push({
       id,
       name: String(t.name || '未命名目标').slice(0, 100),
@@ -59,6 +65,8 @@ export function normalizeTargets(raw) {
       method: ALLOWED_METHODS.includes(method) ? method : 'GET',
       headers: String(t.headers || '').slice(0, 2000),
       body: String(t.body || '').slice(0, 8000),
+      // 非法/为空的 cron 回退默认值，保证老数据无需迁移
+      cron: isValidCron(cron) ? cron : DEFAULT_TARGET_CRON,
       enabled: t.enabled !== false
     });
   }
@@ -122,6 +130,7 @@ async function callTarget(target) {
     name: target.name,
     url: target.url,
     method: target.method,
+    cron: target.cron,
     startedAt
   };
   const controller = new AbortController();
@@ -159,17 +168,33 @@ async function callTarget(target) {
 }
 
 /**
- * 执行全部启用的目标并写一条聚合日志。Cron 与手动触发共用。
+ * 执行定时调用并写一条聚合日志。
  *
  * @param {{ SUBSCRIPTIONS_KV: KVNamespace }} env
+ * @param {Object} [options]
+ * @param {boolean} [options.scheduled=false] true 表示由每分钟 Cron 触发：只调用
+ *   「当前分钟命中各自 cron 表达式」的目标，且一个都没命中时不写日志；
+ *   false（手动触发）则执行全部启用的目标。
  * @returns {Promise<any>}
  */
-export async function runApiCalls(env) {
+export async function runApiCalls(env, { scheduled = false } = {}) {
   const startedAtIso = new Date().toISOString();
-  const targets = (await getTargets(env)).filter((t) => t.enabled);
-  if (targets.length === 0) {
+  const enabled = (await getTargets(env)).filter((t) => t.enabled);
+  if (enabled.length === 0) {
     return { startedAt: startedAtIso, finishedAt: new Date().toISOString(), total: 0, success: 0, failed: 0, results: [] };
   }
+
+  let targets = enabled;
+  if (scheduled) {
+    const timezone = (await getConfig(env)).TIMEZONE || 'UTC';
+    const now = new Date();
+    targets = enabled.filter((t) => cronMatches(t.cron, now, timezone));
+    if (targets.length === 0) {
+      // 本分钟没有任何目标命中调度，直接返回，不写日志（避免 KV 被空记录填满）
+      return { startedAt: startedAtIso, finishedAt: new Date().toISOString(), skipped: true, total: 0, success: 0, failed: 0, results: [] };
+    }
+  }
+
   const results = await Promise.all(targets.map(callTarget));
   const success = results.filter((r) => r.status === 'success').length;
   const entry = {

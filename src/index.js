@@ -36,10 +36,10 @@ export default {
       'UTC:',
       new Date().toISOString()
     );
-    // 双 cron 分发：*/10 每 10 分钟跑一次定时接口调用（Keep-Alive），
+    // 双 cron 分发：每分钟一次定时接口调用（按各目标的 cron 表达式过滤执行），
     // 其余（0 * * * *）跑订阅到期检查。互不影响。
-    if (event?.cron === '*/10 * * * *') {
-      await runApiCalls(env);
+    if (event?.cron === '* * * * *') {
+      await runApiCalls(env, { scheduled: true });
       return;
     }
     await checkExpiringSubscriptions(env);
