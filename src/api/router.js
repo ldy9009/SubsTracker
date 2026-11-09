@@ -6,6 +6,7 @@ import { handleSubscriptions } from './handlers/subscriptions.js';
 import { getConfig } from '../data/config.js';
 import { handleTestNotification } from './handlers/test-notification.js';
 import { handleExtraRoutes } from "./handlers/extras.js";
+import { handleApiCallRoutes } from './handlers/api-calls.js';
 
 async function handleApiRequest(request, env) {
   const url = new URL(request.url);
@@ -58,6 +59,10 @@ async function handleApiRequest(request, env) {
     const { handleImportBackup } = await import('./handlers/backup.js');
     return handleImportBackup(request, env);
   }
+
+  // 新增路由：定时调用（Keep-Alive）目标与日志
+  const apiCallResponse = await handleApiCallRoutes(request, env, path);
+  if (apiCallResponse) return apiCallResponse;
 
   // 新增路由：提醒规则 / 通知日志 / 调度日志（提醒规则 / 通知日志 / 调度日志）
   const extraResponse = await handleExtraRoutes(request, env, path);

@@ -10,6 +10,7 @@
 import app from './app.js';
 import { ensureMigrations } from './data/migrate.js';
 import { checkExpiringSubscriptions } from './services/scheduler.js';
+import { runApiCalls } from './services/api-caller.js';
 
 export default {
   fetch: app.fetch,
@@ -35,6 +36,12 @@ export default {
       'UTC:',
       new Date().toISOString()
     );
+    // 双 cron 分发：*/10 每 10 分钟跑一次定时接口调用（Keep-Alive），
+    // 其余（0 * * * *）跑订阅到期检查。互不影响。
+    if (event?.cron === '*/10 * * * *') {
+      await runApiCalls(env);
+      return;
+    }
     await checkExpiringSubscriptions(env);
   }
 };

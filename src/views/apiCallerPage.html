@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>定时调用 - 订阅管理系统</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  ${themeResources}
+  <style>
+    @media (max-width: 767px) {
+      #systemTimeDisplay { display: none !important; }
+    }
+    /* ── 概览卡片 ── */
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.06);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15); }
+    html.dark .stat-card { background: var(--dark-bg-secondary); }
+    .stat-icon {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+    }
+    /* ── 目标卡片 ── */
+    .target-card {
+      position: relative;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      border: 1px solid #eef2ff;
+      transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+      overflow: hidden;
+    }
+    .target-card:hover { border-color: #c7d2fe; box-shadow: 0 6px 20px rgba(79, 70, 229, 0.12); }
+    html.dark .target-card { background: var(--dark-bg-secondary); }
+    .target-card::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: linear-gradient(180deg, #6366f1, #a5b4fc);
+    }
+    .target-card.is-disabled::before { background: linear-gradient(180deg, #d1d5db, #e5e7eb); }
+    .target-card.is-disabled { opacity: 0.72; }
+    /* ── 输入控件 ── */
+    .field-input {
+      width: 100%;
+      padding: 0.625rem 0.75rem;
+      font-size: 0.875rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none;
+    }
+    .field-input:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12); }
+    html.dark .field-input { background: var(--dark-bg-tertiary, rgba(255,255,255,0.04)); border-color: rgba(255,255,255,0.12); color: #e5e7eb; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    /* ── 按钮 ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.55rem 1.1rem;
+      border-radius: 10px;
+      font-size: 0.875rem; font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer; border: none;
+    }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45); }
+    .btn-ghost {
+      color: #4f46e5;
+      background: #eef2ff;
+    }
+    .btn-ghost:hover { background: #e0e7ff; }
+    .btn-plain {
+      color: #374151;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+    }
+    .btn-plain:hover { background: #f9fafb; }
+    html.dark .btn-plain { background: var(--dark-bg-secondary); color: #d1d5db; border-color: rgba(255,255,255,0.12); }
+    /* ── 日志条目 ── */
+    .log-item {
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid #f1f5f9;
+      overflow: hidden;
+      transition: box-shadow 0.2s ease;
+    }
+    .log-item:hover { box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); }
+    html.dark .log-item { background: var(--dark-bg-secondary); }
+    .log-item.log-ok    { border-left: 4px solid #22c55e; }
+    .log-item.log-fail  { border-left: 4px solid #ef4444; }
+    .raw-pre { white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+    /* ── 状态徽章 ── */
+    .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.7rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+    .badge-ok   { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .badge-fail { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    html.dark .badge-ok   { background: rgba(34,197,94,0.12); color: #4ade80; }
+    html.dark .badge-fail { background: rgba(239,68,68,0.12); color: #f87171; }
+    /* ── Toast ── */
+    @keyframes toastIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+    .toast {
+      position: fixed; top: 1rem; right: 1rem; z-index: 50;
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.75rem 1.1rem;
+      border-radius: 12px;
+      font-size: 0.875rem; font-weight: 500;
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+      animation: toastIn 0.25s ease;
+    }
+    .toast-ok   { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .toast-err  { background: linear-gradient(135deg, #dc2626, #ef4444); }
+    /* ── 空状态 ── */
+    .empty-state { text-align: center; padding: 3rem 1rem; }
+    .empty-state .empty-icon {
+      width: 64px; height: 64px;
+      margin: 0 auto 1rem;
+      border-radius: 20px;
+      background: #eef2ff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; color: #818cf8;
+    }
+    html.dark .empty-state .empty-icon { background: rgba(99,102,241,0.15); }
+    .section-title { display: flex; align-items: center; gap: 0.6rem; font-weight: 600; color: #1f2937; }
+    .section-title .sec-icon {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: #eef2ff; color: #6366f1;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem;
+    }
+    html.dark .section-title .sec-icon { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+    html.dark .section-title { color: #e5e7eb; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div id="toast-container"></div>
+
+  <!-- 与 admin / config / dashboard 完全一致的顶部导航 -->
+  <nav class="bg-white shadow-md relative z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-16">
+        <div class="flex items-center shrink-0">
+          <div class="flex items-center">
+            <i class="fas fa-calendar-check text-indigo-600 text-2xl mr-2"></i>
+            <span class="font-bold text-xl text-gray-800">订阅管理系统</span>
+          </div>
+          <span id="systemTimeDisplay" class="ml-4 text-base text-indigo-600 font-normal hidden md:block pt-1"></span>
+        </div>
+
+        <div class="hidden md:flex items-center space-x-4 ml-auto">
+          <a href="/admin/dashboard" class="text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-gray-300 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-chart-line mr-1"></i>仪表盘
+          </a>
+          <a href="/admin" class="text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-gray-300 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-list mr-1"></i>订阅列表
+          </a>
+          <a href="/admin/notify-logs" class="text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-gray-300 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-history mr-1"></i>通知历史
+          </a>
+          <a href="/admin/api-calls" class="text-indigo-600 border-b-2 border-indigo-600 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-satellite-dish mr-1"></i>定时调用
+          </a>
+          <a href="/admin/config" class="text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-gray-300 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-cog mr-1"></i>系统配置
+          </a>
+          <a href="/api/logout" class="text-gray-700 hover:text-red-600 border-b-2 border-transparent hover:border-red-300 px-3 py-2 rounded-md text-sm font-medium transition">
+            <i class="fas fa-sign-out-alt mr-1"></i>退出登录
+          </a>
+        </div>
+
+        <div class="flex items-center md:hidden ml-auto">
+          <button id="mobile-menu-btn" type="button" aria-expanded="false" aria-label="切换导航菜单"
+            class="text-gray-600 hover:text-indigo-600 focus:outline-none p-2 rounded-md hover:bg-gray-100 active:bg-gray-200 transition-colors">
+            <i class="fas fa-bars text-xl"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-b border-gray-200 w-full">
+      <div class="px-4 pt-2 pb-4 space-y-2">
+        <div id="mobileTimeDisplay" class="px-3 py-2 text-xs text-indigo-600 text-right border-b border-gray-100 mb-2"></div>
+        <a href="/admin/dashboard" class="block px-3 py-3 rounded-md text-base font-medium text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 active:bg-indigo-100 transition-colors">
+          <i class="fas fa-chart-line w-6 text-center mr-2"></i>仪表盘
+        </a>
+        <a href="/admin" class="block px-3 py-3 rounded-md text-base font-medium text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 active:bg-indigo-100 transition-colors">
+          <i class="fas fa-list w-6 text-center mr-2"></i>订阅列表
+        </a>
+        <a href="/admin/notify-logs" class="block px-3 py-3 rounded-md text-base font-medium text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 active:bg-indigo-100 transition-colors">
+          <i class="fas fa-history w-6 text-center mr-2"></i>通知历史
+        </a>
+        <a href="/admin/api-calls" class="block px-3 py-3 rounded-md text-base font-medium text-indigo-600 bg-indigo-50">
+          <i class="fas fa-satellite-dish w-6 text-center mr-2"></i>定时调用
+        </a>
+        <a href="/admin/config" class="block px-3 py-3 rounded-md text-base font-medium text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 active:bg-indigo-100 transition-colors">
+          <i class="fas fa-cog w-6 text-center mr-2"></i>系统配置
+        </a>
+        <a href="/api/logout" class="block px-3 py-3 rounded-md text-base font-medium text-gray-700 hover:bg-red-50 hover:text-red-600 active:bg-red-100 transition-colors">
+          <i class="fas fa-sign-out-alt w-6 text-center mr-2"></i>退出登录
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- 页面头部（渐变横幅） -->
+    <div class="rounded-2xl mb-6 p-6 md:p-7 text-white shadow-lg"
+      style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #818cf8 100%);">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold flex items-center gap-3">
+            <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-white bg-opacity-20 backdrop-filter">
+              <i class="fas fa-satellite-dish text-lg"></i>
+            </span>
+            定时调用（Keep-Alive）
+          </h2>
+          <p class="text-indigo-100 text-sm mt-2 md:ml-14">
+            每 10 分钟由 Cron 自动调用启用的目标，用于保活 Render 免费实例 / 写 Supabase 心跳；调用记录保留 7 天
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2 md:ml-14">
+          <button id="runBtn" class="btn bg-white text-indigo-700 hover:bg-indigo-50 shadow-md">
+            <i class="fas fa-play"></i>立即执行
+          </button>
+          <button id="saveBtn" class="btn bg-indigo-500 bg-opacity-40 text-white border border-white border-opacity-40 hover:bg-opacity-60">
+            <i class="fas fa-save"></i>保存配置
+          </button>
+          <button id="reloadBtn" class="btn bg-white bg-opacity-10 text-white border border-white border-opacity-30 hover:bg-opacity-25">
+            <i class="fas fa-sync"></i>刷新
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 概览卡片 -->
+    <div id="summary" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="stat-card">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-500 font-medium tracking-wide">启用目标</div>
+            <div id="metricEnabled" class="text-3xl font-bold text-gray-800 mt-1">-</div>
+          </div>
+          <span class="stat-icon" style="background:#eef2ff;color:#6366f1;"><i class="fas fa-bullseye"></i></span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-500 font-medium tracking-wide">最近一次执行</div>
+            <div id="metricLatest" class="text-sm font-semibold text-gray-700 mt-2">-</div>
+          </div>
+          <span class="stat-icon" style="background:#f0fdfa;color:#0d9488;"><i class="fas fa-clock"></i></span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-500 font-medium tracking-wide">最近结果</div>
+            <div id="metricLastResult" class="text-2xl font-bold mt-1 text-gray-800">-</div>
+          </div>
+          <span class="stat-icon" style="background:#fefce8;color:#ca8a04;"><i class="fas fa-bolt"></i></span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-500 font-medium tracking-wide">近期成功率</div>
+            <div id="metricRate" class="text-3xl font-bold text-gray-800 mt-1">-</div>
+          </div>
+          <span class="stat-icon" style="background:#f0fdf4;color:#16a34a;"><i class="fas fa-chart-pie"></i></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 目标配置 -->
+    <div class="bg-white rounded-2xl shadow-md mb-6">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <h3 class="section-title text-sm">
+          <span class="sec-icon"><i class="fas fa-bullseye"></i></span>调用目标列表
+        </h3>
+        <button id="addBtn" class="btn btn-ghost text-sm py-1.5">
+          <i class="fas fa-plus"></i>新增目标
+        </button>
+      </div>
+      <div id="targetsWrap" class="p-5 space-y-4">
+        <div class="empty-state text-gray-400">
+          <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+          <div>加载中…</div>
+        </div>
+      </div>
+      <div class="px-5 pb-5">
+        <div class="rounded-xl bg-indigo-50 text-indigo-900 text-xs px-4 py-3 leading-relaxed">
+          <i class="fas fa-circle-info mr-1.5 text-indigo-500"></i>
+          Headers 每行一条 <code class="mono">Key: Value</code>（如 <code class="mono">Authorization: Bearer sk-xxx</code>）；Body 仅 POST/PUT/DELETE 生效；目标数量上限 50 个
+        </div>
+      </div>
+    </div>
+
+    <!-- 调用日志 -->
+    <div class="bg-white rounded-2xl shadow-md overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h3 class="section-title text-sm">
+          <span class="sec-icon"><i class="fas fa-clock-rotate-left"></i></span>最近调用记录
+        </h3>
+      </div>
+      <div id="logsWrap" class="p-5 space-y-3 text-sm">
+        <div class="empty-state text-gray-400">
+          <div class="empty-icon"><i class="fas fa-hourglass-half"></i></div>
+          <div>加载中…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/lib/api-client.js"></script>
+  <script>
+    /**
+     * 定时调用页脚本
+     *
+     * 数据源：
+     *   GET/PUT /api/api-calls        目标列表
+     *   POST    /api/api-calls/run    手动触发
+     *   GET     /api/api-calls/logs   最近调用日志
+     *   GET     /api/config           （取 TIMEZONE 用于本地时间显示）
+     */
+    let userTz = 'UTC';
+    let targets = [];
+
+    function fmtTime(iso) {
+      try {
+        return new Date(iso).toLocaleString('zh-CN', { timeZone: userTz });
+      } catch { return iso; }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function toast(msg, ok) {
+      const box = document.getElementById('toast-container');
+      const div = document.createElement('div');
+      div.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+      div.innerHTML = '<i class="fas ' + (ok ? 'fa-circle-check' : 'fa-circle-exclamation') + '"></i><span>' + escapeHtml(msg) + '</span>';
+      box.appendChild(div);
+      setTimeout(() => {
+        div.style.transition = 'opacity 0.3s ease';
+        div.style.opacity = '0';
+        setTimeout(() => div.remove(), 300);
+      }, 3000);
+    }
+
+    // ─── 目标编辑区 ───
+    function renderTargets() {
+      const wrap = document.getElementById('targetsWrap');
+      if (!targets.length) {
+        wrap.innerHTML = '<div class="empty-state text-gray-400">'
+          + '<div class="empty-icon"><i class="fas fa-plus"></i></div>'
+          + '<div>还没有调用目标</div>'
+          + '<div class="text-xs mt-1 text-gray-400">点击右上角「新增目标」添加第一个目标</div>'
+          + '</div>';
+        return;
+      }
+      wrap.innerHTML = targets.map((t, i) => {
+        const methodColors = {
+          GET:    'background:#eef2ff;color:#4f46e5;',
+          POST:   'background:#f0fdf4;color:#15803d;',
+          PUT:    'background:#fffbeb;color:#b45309;',
+          HEAD:   'background:#fdf4ff;color:#a21caf;',
+          DELETE: 'background:#fef2f2;color:#b91c1c;'
+        };
+        return '<div class="target-card' + (t.enabled ? '' : ' is-disabled') + '" data-idx="' + i + '">'
+          + '<div class="p-4 pl-5">'
+          + '<div class="flex flex-wrap items-center gap-3 mb-3">'
+          + '  <span class="text-xs font-bold text-gray-400 mono">#' + (i + 1) + '</span>'
+          + '  <input data-f="name" value="' + escapeHtml(t.name) + '" placeholder="目标名称，如 Render 保活" class="field-input flex-1 min-w-[140px] font-medium">'
+          + '  <select data-f="method" class="field-input mono font-bold text-xs" style="width:auto;padding-right:0.5rem;' + (methodColors[t.method] || '') + '">'
+          + ['GET', 'POST', 'PUT', 'HEAD', 'DELETE'].map(m => '<option' + (m === t.method ? ' selected' : '') + '>' + m + '</option>').join('')
+          + '  </select>'
+          + '  <label class="flex items-center text-sm text-gray-700 cursor-pointer select-none bg-gray-50 px-3 py-2 rounded-lg hover:bg-gray-100 transition">'
+          + '    <input type="checkbox" data-f="enabled" class="mr-1.5 accent-indigo-600"' + (t.enabled ? ' checked' : '') + '>启用'
+          + '  </label>'
+          + '  <button data-act="del" class="text-red-500 hover:text-red-700 text-sm font-medium transition px-2 py-1.5 rounded-lg hover:bg-red-50" title="删除该目标"><i class="fas fa-trash"></i></button>'
+          + '</div>'
+          + '<div class="relative mb-2">'
+          + '  <i class="fas fa-link absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>'
+          + '  <input data-f="url" value="' + escapeHtml(t.url) + '" placeholder="完整 URL，如 https://xxx.onrender.com/healthz" class="field-input mono pl-8">'
+          + '</div>'
+          + '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">'
+          + '  <div>'
+          + '    <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-key mr-1 text-gray-400"></i>Headers（每行一条 Key: Value）</label>'
+          + '    <textarea data-f="headers" rows="2" class="field-input mono text-xs" placeholder="Authorization: Bearer xxx">' + escapeHtml(t.headers) + '</textarea>'
+          + '  </div>'
+          + '  <div>'
+          + '    <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-file-code mr-1 text-gray-400"></i>Body（仅 POST/PUT/DELETE 生效）</label>'
+          + '    <textarea data-f="body" rows="2" class="field-input mono text-xs" placeholder=\'{"ts": 1}\'>' + escapeHtml(t.body) + '</textarea>'
+          + '  </div>'
+          + '</div>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+
+      wrap.querySelectorAll('[data-act="del"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.closest('[data-idx]').dataset.idx);
+          targets.splice(idx, 1);
+          renderTargets();
+          toast('已移除目标（保存配置后生效）', true);
+        });
+      });
+      wrap.querySelectorAll('select[data-f="method"]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const card = sel.closest('[data-idx]');
+          const idx = Number(card.dataset.idx);
+          targets[idx].method = sel.value;
+          const methodColors = {
+            GET: 'background:#eef2ff;color:#4f46e5;', POST: 'background:#f0fdf4;color:#15803d;',
+            PUT: 'background:#fffbeb;color:#b45309;', HEAD: 'background:#fdf4ff;color:#a21caf;',
+            DELETE: 'background:#fef2f2;color:#b91c1c;'
+          };
+          sel.style.cssText = 'width:auto;padding-right:0.5rem;' + (methodColors[sel.value] || '');
+        });
+      });
+      wrap.querySelectorAll('input[data-f="enabled"]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          cb.closest('[data-idx]').classList.toggle('is-disabled', !cb.checked);
+        });
+      });
+    }
+
+    function collectTargets() {
+      document.querySelectorAll('#targetsWrap [data-idx]').forEach(card => {
+        const idx = Number(card.dataset.idx);
+        const get = f => card.querySelector('[data-f="' + f + '"]');
+        if (!targets[idx]) return;
+        targets[idx].name = get('name').value;
+        targets[idx].url = get('url').value.trim();
+        targets[idx].method = get('method').value;
+        targets[idx].headers = get('headers').value;
+        targets[idx].body = get('body').value;
+        targets[idx].enabled = get('enabled').checked;
+      });
+      return targets;
+    }
+
+    async function loadTargets() {
+      try {
+        const data = await ApiClient.get('/api/api-calls');
+        targets = (data && data.targets) || [];
+        renderTargets();
+      } catch (err) {
+        toast('加载目标失败：' + err.message, false);
+      }
+    }
+
+    async function saveTargets() {
+      try {
+        const data = await ApiClient.put('/api/api-calls', { targets: collectTargets() });
+        targets = (data && data.targets) || [];
+        renderTargets();
+        toast('配置已保存，下一轮 Cron 生效', true);
+      } catch (err) {
+        toast('保存失败：' + err.message, false);
+      }
+    }
+
+    // ─── 日志区 ───
+    function statusBadge(s) {
+      if (s === 'success') return '<span class="badge badge-ok"><i class="fas fa-check text-[10px]"></i>成功</span>';
+      if (s === 'failed') return '<span class="badge badge-fail"><i class="fas fa-xmark text-[10px]"></i>失败</span>';
+      return '<span class="badge bg-gray-100 text-gray-700">' + escapeHtml(s || '-') + '</span>';
+    }
+
+    async function loadLogs() {
+      const wrap = document.getElementById('logsWrap');
+      wrap.innerHTML = '<div class="empty-state text-gray-400"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><div>加载中…</div></div>';
+      let logs = [];
+      try {
+        const data = await ApiClient.get('/api/api-calls/logs', { limit: 30 });
+        logs = (data && data.logs) || [];
+      } catch (err) {
+        wrap.innerHTML = '<div class="text-red-500 text-center py-8"><i class="fas fa-circle-exclamation mr-1"></i>加载失败：' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+
+      // 概览卡片
+      document.getElementById('metricEnabled').textContent = targets.filter(t => t.enabled).length;
+      const latest = logs[0];
+      document.getElementById('metricLatest').textContent = latest ? fmtTime(latest.startedAt) : '暂无记录';
+      if (latest) {
+        const el = document.getElementById('metricLastResult');
+        el.textContent = latest.failed === 0 ? latest.success + ' ✓' : latest.success + ' ✓ / ' + latest.failed + ' ✗';
+        el.className = 'text-2xl font-bold mt-1 ' + (latest.failed === 0 ? 'text-green-600' : 'text-red-600');
+      } else {
+        document.getElementById('metricLastResult').textContent = '-';
+      }
+      let total = 0, ok = 0;
+      for (const l of logs) { total += l.total || 0; ok += l.success || 0; }
+      document.getElementById('metricRate').textContent = total ? Math.round((ok / total) * 100) + '%' : '-';
+
+      if (!logs.length) {
+        wrap.innerHTML = '<div class="empty-state text-gray-400">'
+          + '<div class="empty-icon"><i class="fas fa-wave-square"></i></div>'
+          + '<div>暂无调用记录</div>'
+          + '<div class="text-xs mt-1 text-gray-400">保存目标后点「立即执行」试一次，或等下一轮 Cron 自动触发</div>'
+          + '</div>';
+        return;
+      }
+      wrap.innerHTML = logs.map(l => {
+        const rows = (l.results || []).map(r => {
+          const detail = r.error
+            ? '<span class="text-red-600"><i class="fas fa-triangle-exclamation mr-1 text-xs"></i>' + escapeHtml(r.error) + '</span>'
+            : '<span class="badge bg-gray-100 text-gray-600 mono text-[10px]">HTTP ' + r.httpStatus + '</span>'
+              + '<span class="text-xs text-gray-500 mono">' + r.durationMs + 'ms</span>'
+              + (r.responseSnippet ? '<details class="mt-1 w-full"><summary class="cursor-pointer text-gray-500 hover:text-indigo-600 text-xs">响应片段</summary><pre class="raw-pre text-xs bg-gray-50 p-2 mt-1 rounded-lg">' + escapeHtml(r.responseSnippet) + '</pre></details>' : '');
+          return '<div class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 border-b border-gray-50 last:border-0">'
+            + '<span class="font-medium text-gray-800">' + escapeHtml(r.name) + '</span>'
+            + statusBadge(r.status)
+            + '<span class="badge bg-gray-100 text-gray-600 mono text-[10px]">' + escapeHtml(r.method) + '</span>'
+            + '<span class="text-xs text-gray-600 flex flex-wrap items-center gap-2">' + detail + '</span>'
+            + '</div>';
+        }).join('');
+        const allOk = l.failed === 0;
+        const headBadge = allOk
+          ? '<span class="badge badge-ok"><i class="fas fa-check text-[10px]"></i>' + l.success + ' 成功</span>'
+          : '<span class="badge badge-fail"><i class="fas fa-xmark text-[10px]"></i>' + l.failed + ' 失败</span>';
+        return '<details class="log-item ' + (allOk ? 'log-ok' : 'log-fail') + '">'
+          + '<summary class="cursor-pointer px-4 py-3 hover:bg-gray-50 flex flex-wrap items-center gap-3 transition">'
+          + '<i class="fas fa-chevron-right text-[10px] text-gray-400 transition-transform" style="transform: rotate(0deg);"></i>'
+          + '<span class="mono text-xs text-gray-500">' + escapeHtml(fmtTime(l.startedAt)) + '</span>'
+          + headBadge
+          + '<span class="text-xs text-gray-500">' + l.total + ' 个目标</span>'
+          + '</summary>'
+          + '<div class="px-4 pb-3 pt-0">' + (rows || '<div class="text-gray-400 text-xs py-2">无明细</div>') + '</div>'
+          + '</details>';
+      }).join('');
+
+      // 展开/收起时旋转小箭头
+      wrap.querySelectorAll('details').forEach(d => {
+        d.addEventListener('toggle', () => {
+          const arrow = d.querySelector('summary i');
+          if (arrow) arrow.style.transform = d.open ? 'rotate(90deg)' : 'rotate(0deg)';
+        });
+      });
+    }
+
+    async function runNow() {
+      const btn = document.getElementById('runBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>执行中…';
+      try {
+        await ApiClient.post('/api/api-calls/run', {});
+        await loadLogs();
+        toast('已执行一轮全部启用的目标', true);
+      } catch (err) {
+        toast('执行失败：' + err.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i>立即执行';
+      }
+    }
+
+    // ─── 实时时钟（与其他 admin 页一致）───
+    function formatTimezoneDisplay(tz) {
+      try {
+        const now = new Date();
+        const dtf = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        const parts = dtf.formatToParts(now);
+        const get = (type) => Number(parts.find(x => x.type === type).value);
+        const target = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+        const offset = Math.round((target - now.getTime()) / (1000 * 60 * 60));
+        const offsetStr = offset >= 0 ? '+' + offset : offset;
+        const names = { 'UTC': '世界标准时间', 'Asia/Shanghai': '中国标准时间' };
+        const cn = names[tz] || tz;
+        return cn + ' (UTC' + offsetStr + ')';
+      } catch { return tz; }
+    }
+
+    function startClock() {
+      const updateClock = () => {
+        try {
+          const now = new Date();
+          const timeStr = now.toLocaleString('zh-CN', {
+            timeZone: userTz,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+          });
+          const tzStr = formatTimezoneDisplay(userTz);
+          const el = document.getElementById('systemTimeDisplay');
+          const mob = document.getElementById('mobileTimeDisplay');
+          if (el) el.textContent = timeStr + '  ' + tzStr;
+          if (mob) mob.textContent = timeStr + ' ' + tzStr;
+        } catch { /* ignore */ }
+      };
+      updateClock();
+      setInterval(updateClock, 1000);
+    }
+
+    // ─── 移动端菜单（与其他 admin 页一致）───
+    function setupMobileMenu() {
+      const btn = document.getElementById('mobile-menu-btn');
+      const menu = document.getElementById('mobile-menu');
+      if (!btn || !menu) return;
+      const sync = () => {
+        const icon = btn.querySelector('i');
+        const isHidden = menu.classList.contains('hidden');
+        btn.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
+        if (icon) {
+          icon.classList.toggle('fa-bars', isHidden);
+          icon.classList.toggle('fa-times', !isHidden);
+        }
+      };
+      btn.addEventListener('click', () => { menu.classList.toggle('hidden'); sync(); });
+      menu.querySelectorAll('a').forEach(link =>
+        link.addEventListener('click', () => { menu.classList.add('hidden'); sync(); })
+      );
+      document.addEventListener('click', (e) => {
+        if (menu.classList.contains('hidden')) return;
+        if (btn.contains(e.target) || menu.contains(e.target)) return;
+        menu.classList.add('hidden'); sync();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !menu.classList.contains('hidden')) {
+          menu.classList.add('hidden'); sync();
+        }
+      });
+      sync();
+    }
+
+    // ─── 启动 ───
+    (async function init() {
+      setupMobileMenu();
+      try {
+        const cfg = await ApiClient.get('/api/config');
+        if (cfg && cfg.TIMEZONE) userTz = cfg.TIMEZONE;
+      } catch { /* ignore */ }
+      startClock();
+      await loadTargets();
+      await loadLogs();
+
+      document.getElementById('addBtn').addEventListener('click', () => {
+        targets.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: '', url: '', method: 'GET', headers: '', body: '', enabled: true });
+        renderTargets();
+        const cards = document.querySelectorAll('#targetsWrap [data-idx]');
+        const last = cards[cards.length - 1];
+        if (last) last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      document.getElementById('saveBtn').addEventListener('click', saveTargets);
+      document.getElementById('runBtn').addEventListener('click', runNow);
+      document.getElementById('reloadBtn').addEventListener('click', async () => {
+        await loadTargets();
+        await loadLogs();
+      });
+    })();
+  </script>
+</body>
+</html>

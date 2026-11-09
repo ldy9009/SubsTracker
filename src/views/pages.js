@@ -5,6 +5,7 @@ import adminPageHtml from './adminPage.html';
 import configPageHtml from './configPage.html';
 import dashboardPageHtml from './dashboardPage.html';
 import notifyLogsPageHtml from './notifyLogsPage.html';
+import apiCallerPageHtml from './apiCallerPage.html';
 
 // themeResources 需要注入到每个页面模板中
 function injectTheme(html) {
@@ -15,9 +16,10 @@ const loginPage = injectTheme(loginPageHtml);
 const adminPage = injectTheme(adminPageHtml);
 const configPage = injectTheme(configPageHtml);
 const notifyLogsPage = injectTheme(notifyLogsPageHtml);
+const apiCallerPage = injectTheme(apiCallerPageHtml);
 
 function dashboardPage() {
   return injectTheme(dashboardPageHtml);
 }
 
-export { loginPage, adminPage, configPage, dashboardPage, notifyLogsPage };
+export { loginPage, adminPage, configPage, dashboardPage, notifyLogsPage, apiCallerPage };

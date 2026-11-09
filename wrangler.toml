@@ -1,13 +1,13 @@
-name = "subscription-manager"
+name = "sub-tracker"
 main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [env.production]
-name = "subscription-manager"
+name = "sub-tracker"
 
 [env.staging]
-name = "subscription-manager-staging"
+name = "sub-tracker-staging"
 
 # KV 命名空间配置（默认模板不预设固定 ID，运行 npm run setup 自动生成）
 
@@ -18,9 +18,12 @@ name = "subscription-manager-staging"
 directory = "./public"
 binding = "ASSETS"
 
-# 定时任务配置 - 每小时检查一次（UTC）
+# 定时任务配置（UTC）：
+#   0 * * * *    每小时整点：订阅到期检查
+#   */10 * * * * 每 10 分钟：定时调用接口（Keep-Alive）
+# 在 src/index.js 的 scheduled 中按 event.cron 分发
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "*/10 * * * *"]
 
 # 环境变量（可选，也可以在 Cloudflare Dashboard 中设置）
 [vars]

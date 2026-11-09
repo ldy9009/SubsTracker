@@ -1,7 +1,7 @@
 import { getConfig } from '../data/config.js';
 import { verifyJWT } from '../core/auth.js';
 import { getCookieValue } from './utils.js';
-import { loginPage, adminPage, configPage, dashboardPage, notifyLogsPage } from '../views/pages.js';
+import { loginPage, adminPage, configPage, dashboardPage, notifyLogsPage, apiCallerPage } from '../views/pages.js';
 
 async function handleAdminRequest(request, env) {
   try {
@@ -40,6 +40,12 @@ async function handleAdminRequest(request, env) {
 
     if (pathname === '/admin/notify-logs') {
       return new Response(notifyLogsPage, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
+    }
+
+    if (pathname === '/admin/api-calls') {
+      return new Response(apiCallerPage, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
     }
