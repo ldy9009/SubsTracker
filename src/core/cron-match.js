@@ -1,17 +1,21 @@
 // @ts-check
 /**
- * 轻量 5 字段 cron 表达式解析与匹配（分钟粒度）
+ * 轻量 5/6 字段 cron 表达式解析与匹配（分钟粒度）
  *
- * 格式：`分 时 日 月 周`，与 Vixie cron 语义一致：
+ * 格式：`分 时 日 月 周 [年]`，前 5 字段与 Vixie cron 语义一致：
  *   - 支持通配、步长（如每 10 分钟：星号 + "/10"）、范围 a-b、范围步长 a-b/n、逗号列表（如 "0,15,30 * * * *"）
  *   - 周（dow）0 与 7 都表示周日
  *   - 日（dom）与周（dow）都受限时的标准语义：任一匹配即视为匹配
+ *
+ * 可选第 6 字段「年」（Quartz 风格扩展），用于表达「间隔 N 年」这类调度：
+ *   - 支持 2026、2026-2030、2026/2（自 2026 起每隔一年）、通配加步长 /2（偶数年，自 1970 起步长锚定）、逗号列表
+ *   - 省略年份字段时行为与标准 5 字段完全一致
  *
  * 匹配按传入时区计算（复用 src/core/time.js 的 getTimezoneDateParts），
  * 因此 "0 8 * * *" 表示的是系统配置时区（如 Asia/Shanghai）的每天 8 点。
  *
  * 设计为纯函数、零依赖，供 api-caller 服务在每分钟 Cron 触发时
- * 判断「这一分钟哪些定时调用目标需要执行」。
+ * 判断「这一分钟哪些定时调用目标需要执行」，并支持计算下一次执行时间。
  */
 
 import { getTimezoneDateParts } from './time.js';
@@ -24,6 +28,8 @@ const FIELD_RANGES = [
   { min: 1, max: 12 }, // month
   { min: 0, max: 7 } // day of week（7 会归一化为 0）
 ];
+/** 可选第 6 字段「年」的取值范围 */
+const YEAR_RANGE = { min: 1970, max: 2999 };
 
 const CRON_FIELD_RE = /^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/;
 
@@ -32,9 +38,11 @@ const CRON_FIELD_RE = /^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/;
  *
  * @param {string} expr 字段原文（如步长写法 "星号/10"、范围 "1-5"、列表 "0,15"）
  * @param {{ min: number, max: number }} range
+ * @param {boolean} [bareStartStepToMax=false] true 时允许「起点/步长」写法（无显式终点，步长锚定起点、
+ *        终点延伸到 range.max）。标准 5 字段不用此语义；年份字段用它实现 "2026/2" = 自 2026 起每隔一年。
  * @returns {Set<number>|null} 非法表达式返回 null
  */
-function expandField(expr, range) {
+function expandField(expr, range, bareStartStepToMax = false) {
   /** @type {Set<number>} */
   const out = new Set();
   for (const token of String(expr).split(',')) {
@@ -44,7 +52,10 @@ function expandField(expr, range) {
     if (!m) return null;
     const isStar = m[1] === '*';
     const start = isStar ? range.min : Number(m[1]);
-    const end = m[2] !== undefined ? Number(m[2]) : isStar ? range.max : start;
+    const hasEnd = m[2] !== undefined;
+    const hasStep = m[3] !== undefined;
+    // 终点：显式范围用显式值；星号延伸到 max；「起点/步长」写法（bareStartStepToMax 且有步长）延伸到 max；其余只取单值
+    const end = hasEnd ? Number(m[2]) : isStar ? range.max : bareStartStepToMax && hasStep ? range.max : start;
     const step = m[3] !== undefined ? Number(m[3]) : 1;
     if (Number.isNaN(start) || Number.isNaN(end) || Number.isNaN(step)) return null;
     if (step < 1) return null;
@@ -57,15 +68,16 @@ function expandField(expr, range) {
 }
 
 /**
- * 校验并解析 cron 表达式。
+ * 校验并解析 cron 表达式（5 字段标准格式，或带第 6 位年份的扩展格式）。
  *
  * @param {string} expr
- * @returns {{ fields: Set<number>[], domStar: boolean, dowStar: boolean }|null}
- *          非法表达式返回 null；domStar/dowStar 标记「日」「周」字段是否为通配 *
+ * @returns {{ fields: Set<number>[], year: Set<number>|null, domStar: boolean, dowStar: boolean }|null}
+ *          非法表达式返回 null；fields 为分/时/日/月/周五个集合；
+ *          year 为年份集合（无年份字段时为 null）；domStar/dowStar 标记「日」「周」字段是否为通配 *
  */
 export function parseCron(expr) {
   const parts = String(expr || '').trim().split(/\s+/);
-  if (parts.length !== 5) return null;
+  if (parts.length !== 5 && parts.length !== 6) return null;
   /** @type {Set<number>[]} */
   const fields = [];
   for (let i = 0; i < 5; i++) {
@@ -73,9 +85,15 @@ export function parseCron(expr) {
     if (!set || set.size === 0) return null;
     fields.push(set);
   }
+  let year = null;
+  if (parts.length === 6) {
+    year = expandField(parts[5], YEAR_RANGE, true);
+    if (!year || year.size === 0) return null;
+  }
   const isStarField = (token) => String(token).split(',').every((t) => t.trim() === '*');
   return {
     fields,
+    year,
     domStar: isStarField(parts[2]),
     dowStar: isStarField(parts[4])
   };
@@ -107,6 +125,9 @@ export function cronMatches(expr, now, timezone = 'UTC') {
   const parts = getTimezoneDateParts(now, timezone);
   // 由「日历日期」推算星期（weekday 只取决于日期）
   const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+
+  // 有年份字段时，年份必须命中
+  if (parsed.year && !parsed.year.has(parts.year)) return false;
 
   const domMatch = dom.has(parts.day);
   const dowMatch = dow.has(weekday);
@@ -150,6 +171,7 @@ export function nextCronRun(expr, from = Date.now(), timezone = 'UTC', maxDays =
   const toUtc = (y, m, d, h = 0, mi = 0) => Date.UTC(y, m - 1, d, h, mi);
   const dayMatches = (y, m, d) => {
     if (!month.has(m)) return false;
+    if (parsed.year && !parsed.year.has(y)) return false;
     const weekday = new Date(toUtc(y, m, d)).getUTCDay();
     const domMatch = dom.has(d);
     const dowMatch = dow.has(weekday);
@@ -158,6 +180,14 @@ export function nextCronRun(expr, from = Date.now(), timezone = 'UTC', maxDays =
     if (parsed.dowStar) return domMatch;
     return domMatch || dowMatch; // 都受限：任一匹配即通过（与 cronMatches 一致）
   };
+
+  // 带年份字段时，搜索范围要覆盖到最远的匹配年份（如 "0 0 1 11 * 2030" 距今可能超过 370 天）
+  let horizonDays = maxDays;
+  if (parsed.year) {
+    const lastYear = Math.max(...parsed.year);
+    const needed = Math.ceil((toUtc(lastYear, 12, 31) - Number(from)) / 86400000) + 1;
+    horizonDays = Math.max(maxDays, Math.min(needed, 40000)); // 上限约 109 年（年份字段最大 2999）
+  }
 
   // 今天：从「下一分钟」开始找（正在执行的这一分钟不算下一次）
   if (dayMatches(p.year, p.month, p.day)) {
@@ -175,7 +205,7 @@ export function nextCronRun(expr, from = Date.now(), timezone = 'UTC', maxDays =
   let y = p.year;
   let m = p.month;
   let d = p.day;
-  for (let i = 1; i <= maxDays; i++) {
+  for (let i = 1; i <= horizonDays; i++) {
     const dt = new Date(toUtc(y, m, d) + 86400000);
     y = dt.getUTCFullYear();
     m = dt.getUTCMonth() + 1;
