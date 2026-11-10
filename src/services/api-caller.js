@@ -4,7 +4,7 @@
  *
  * 由 Cron（每 10 分钟一条）触发，也可通过 POST /api/api-calls/run 手动触发。
  * 从 KV `api_call_targets` 读取目标列表，逐个发起 HTTP 请求，结果写入
- * KV `apicall_log:{ISO_UTC}`（7 天 TTL，ISO 字典序 == 时间序）。
+ * KV `apicall_log:{ISO_UTC}`（1 小时 TTL，ISO 字典序 == 时间序）。
  *
  * 典型用途：
  *   - 定时 ping Render 免费实例，防止 15 分钟无流量休眠
@@ -18,7 +18,7 @@ import { cronMatches, isValidCron } from '../core/cron-match.js';
 
 const TARGETS_KEY = 'api_call_targets';
 const LOG_PREFIX = 'apicall_log:';
-const LOG_TTL_SEC = 7 * 24 * 3600;
+const LOG_TTL_SEC = 60 * 60;
 const TIMEOUT_MS = 15000;
 const MAX_LOGS = 500;
 const MAX_TARGETS = 50;
