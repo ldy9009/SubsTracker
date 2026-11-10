@@ -14,7 +14,7 @@
 
 import { getKVJson } from '../data/kv.js';
 import { getConfig } from '../data/config.js';
-import { cronMatches, isValidCron } from '../core/cron-match.js';
+import { cronMatches, isValidCron, nextCronRun } from '../core/cron-match.js';
 
 const TARGETS_KEY = 'api_call_targets';
 const LOG_PREFIX = 'apicall_log:';
@@ -165,6 +165,23 @@ async function callTarget(target) {
     clearTimeout(timer);
   }
   return result;
+}
+
+/**
+ * 批量计算各目标的下一次执行时间（页面展示用）。
+ * 返回的 ISO 时间是 TIMEZONE 时区的墙上时间（按 UTC 编码），前端用同一时区展示。
+ *
+ * @param {{ SUBSCRIPTIONS_KV: KVNamespace }} env
+ * @param {ApiCallTarget[]} targets
+ * @returns {Promise<Record<string, string|null>>} targetId -> 下次执行 ISO；一年内无调度为 null
+ */
+export async function getNextRuns(env, targets) {
+  const timezone = (await getConfig(env)).TIMEZONE || 'UTC';
+  const now = Date.now();
+  /** @type {Record<string, string|null>} */
+  const out = {};
+  for (const t of targets) out[t.id] = nextCronRun(t.cron, now, timezone);
+  return out;
 }
 
 /**

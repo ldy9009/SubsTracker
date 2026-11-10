@@ -399,11 +399,14 @@
      * 数据源：
      *   GET/PUT /api/api-calls        目标列表
      *   POST    /api/api-calls/run    手动触发
+     *   POST    /api/api-calls/test   单目标测试
+     *   GET     /api/api-calls/next-runs  各目标的下一次执行时间
      *   GET     /api/api-calls/logs   最近调用日志
      *   GET     /api/config           （取 TIMEZONE 用于本地时间显示）
      */
     let userTz = 'UTC';
     let targets = [];
+    let nextRuns = {}; // targetId -> 下次执行 ISO（TIMEZONE 墙上时间）
 
     function fmtTime(iso) {
       try {
@@ -468,6 +471,7 @@
               ? '<span class="badge badge-ok"><i class="fas fa-check text-[10px]"></i>启用</span>'
               : '<span class="badge bg-gray-100 text-gray-500"><i class="fas fa-pause text-[10px]"></i>停用</span>')
           + '  <span class="ml-auto flex items-center gap-1.5">'
+          + '    <button type="button" data-act="copy" class="btn btn-ghost text-xs py-1.5 px-3" title="复制一份到下一行"><i class="fas fa-copy"></i>复制</button>'
           + '    <button type="button" data-act="test" class="btn btn-ghost text-xs py-1.5 px-3"><i class="fas fa-bolt"></i>测试</button>'
           + '    <button type="button" data-act="edit" class="btn btn-plain text-xs py-1.5 px-3"><i class="fas fa-pen"></i>编辑</button>'
           + '    <button type="button" data-act="del" class="text-red-500 hover:text-red-700 text-sm font-medium transition px-2 py-1.5 rounded-lg hover:bg-red-50" title="删除该目标"><i class="fas fa-trash"></i></button>'
@@ -477,6 +481,7 @@
           + '<div class="text-xs text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1">'
           + '  <span><i class="fas fa-clock mr-1.5 text-gray-300"></i><span class="mono">' + escapeHtml(t.cron) + '</span>'
           + (cronHint ? '<span class="text-gray-400 ml-1">（' + cronHint + '）</span>' : '') + '</span>'
+          + '  <span><i class="fas fa-forward mr-1.5 text-gray-300"></i>下次执行 <span class="mono">' + (nextRuns[t.id] ? escapeHtml(fmtTime(nextRuns[t.id])) : '一年内无调度') + '</span></span>'
           + (t.headers ? '<span><i class="fas fa-key mr-1.5 text-gray-300"></i>自定义 Headers</span>' : '')
           + (t.body ? '<span><i class="fas fa-file-code mr-1.5 text-gray-300"></i>带 Body</span>' : '')
           + '</div>'
@@ -491,6 +496,8 @@
           btn.addEventListener('click', () => deleteTarget(idx));
         } else if (act === 'edit') {
           btn.addEventListener('click', () => openModal(targets[idx]));
+        } else if (act === 'copy') {
+          btn.addEventListener('click', () => duplicateTarget(idx));
         } else if (act === 'test') {
           btn.addEventListener('click', () => testTargetFromList(btn, targets[idx]));
         }
@@ -504,6 +511,32 @@
       renderTargets();
       const el = document.getElementById('metricEnabled');
       if (el) el.textContent = targets.filter(t => t.enabled).length;
+      loadNextRuns(); // 刷新「下次执行」展示
+    }
+
+    /** 复制目标：在当前行下面插入一份副本（名称加「副本」，新 id），立即生效 */
+    async function duplicateTarget(idx) {
+      const t = targets[idx];
+      if (!t) return;
+      if (targets.length >= 50) { toast('已达目标数量上限（50 个），无法复制', false); return; }
+      try {
+        const copy = { ...t, id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + ':' + Math.random()), name: (t.name || '未命名目标') + ' 副本' };
+        const list = targets.slice();
+        list.splice(idx + 1, 0, copy);
+        await persistTargets(list);
+        toast('已复制到下一行，点「编辑」可继续调整', true);
+      } catch (err) {
+        toast('复制失败：' + err.message, false);
+      }
+    }
+
+    /** 拉取各目标的下一次执行时间（展示性数据，失败不影响主流程） */
+    async function loadNextRuns() {
+      try {
+        const data = await ApiClient.get('/api/api-calls/next-runs');
+        nextRuns = (data && data.next) || {};
+        renderTargets();
+      } catch { /* 忽略 */ }
     }
 
     async function deleteTarget(idx) {
@@ -828,6 +861,7 @@
       } catch { /* ignore */ }
       startClock();
       await loadTargets();
+      await loadNextRuns();
       await loadLogs();
 
       // 弹窗：请求方法下拉与调度预设
@@ -848,6 +882,7 @@
       document.getElementById('runBtn').addEventListener('click', runNow);
       document.getElementById('reloadBtn').addEventListener('click', async () => {
         await loadTargets();
+        await loadNextRuns();
         await loadLogs();
       });
 

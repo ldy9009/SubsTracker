@@ -123,3 +123,65 @@ export function cronMatches(expr, now, timezone = 'UTC') {
     dayMatch
   );
 }
+
+/**
+ * 计算下一次执行时间（分钟粒度，按给定时区的墙上时间搜索）。
+ *
+ * 返回值约定：ISO 字符串中的「年月日时分」是 timezone 时区的墙上时间，按 UTC 编码。
+ * 前端用同一时区展示（toLocaleString 的 timeZone 参数）即可还原本地时间；
+ * 但它不是真实 UTC 时刻，不能用于跨时区换算或真实定时，仅供展示与排序。
+ *
+ * 搜索按「天」推进（每天最多 370 次，覆盖年频率表达式），不做逐分钟暴力循环。
+ *
+ * @param {string} expr 5 字段 cron 表达式（非法返回 null）
+ * @param {Date|number} [from] 起始时刻，默认当前
+ * @param {string} [timezone='UTC']
+ * @param {number} [maxDays=370] 向后搜索的天数上限
+ * @returns {string|null} 下一次执行的 ISO 时间；搜索范围内无匹配返回 null
+ */
+export function nextCronRun(expr, from = Date.now(), timezone = 'UTC', maxDays = 370) {
+  const parsed = parseCron(expr);
+  if (!parsed) return null;
+  const [minuteSet, hourSet, dom, month, dow] = parsed.fields;
+  const minutes = [...minuteSet].sort((a, b) => a - b);
+  const hours = [...hourSet].sort((a, b) => a - b);
+
+  const p = getTimezoneDateParts(from, timezone);
+  const toUtc = (y, m, d, h = 0, mi = 0) => Date.UTC(y, m - 1, d, h, mi);
+  const dayMatches = (y, m, d) => {
+    if (!month.has(m)) return false;
+    const weekday = new Date(toUtc(y, m, d)).getUTCDay();
+    const domMatch = dom.has(d);
+    const dowMatch = dow.has(weekday);
+    if (parsed.domStar && parsed.dowStar) return true;
+    if (parsed.domStar) return dowMatch;
+    if (parsed.dowStar) return domMatch;
+    return domMatch || dowMatch; // 都受限：任一匹配即通过（与 cronMatches 一致）
+  };
+
+  // 今天：从「下一分钟」开始找（正在执行的这一分钟不算下一次）
+  if (dayMatches(p.year, p.month, p.day)) {
+    for (const h of hours) {
+      if (h < p.hour) continue;
+      if (h === p.hour) {
+        const mi = minutes.find((x) => x > p.minute);
+        if (mi !== undefined) return new Date(toUtc(p.year, p.month, p.day, h, mi)).toISOString();
+        continue;
+      }
+      return new Date(toUtc(p.year, p.month, p.day, h, minutes[0])).toISOString();
+    }
+  }
+  // 之后的每一天：当天最早的小时/分钟
+  let y = p.year;
+  let m = p.month;
+  let d = p.day;
+  for (let i = 1; i <= maxDays; i++) {
+    const dt = new Date(toUtc(y, m, d) + 86400000);
+    y = dt.getUTCFullYear();
+    m = dt.getUTCMonth() + 1;
+    d = dt.getUTCDate();
+    if (!dayMatches(y, m, d)) continue;
+    return new Date(toUtc(y, m, d, hours[0], minutes[0])).toISOString();
+  }
+  return null;
+}

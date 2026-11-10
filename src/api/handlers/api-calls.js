@@ -7,13 +7,14 @@
  *   PUT    /api/api-calls          保存目标列表（整体替换）
  *   POST   /api/api-calls/run      手动触发一次全部启用的目标
  *   POST   /api/api-calls/test     测试单个目标（不落库、不写日志）
+ *   GET    /api/api-calls/next-runs 各目标的下一次执行时间（展示用）
  *   GET    /api/api-calls/logs     最近调用日志 ?limit=30
  *
  * 鉴权：由 router.js 在调用本文件前统一校验（需登录），与既有路由一致。
  *
  */
 
-import { getTargets, saveTargets, runApiCalls, testTarget, getRecentLogs } from '../../services/api-caller.js';
+import { getTargets, saveTargets, runApiCalls, testTarget, getNextRuns, getRecentLogs } from '../../services/api-caller.js';
 
 /** 标准 JSON 响应 */
 function json(data, status = 200) {
@@ -70,6 +71,12 @@ export async function handleApiCallRoutes(request, env, path) {
     const out = await testTarget(env, body && body.target);
     if (!out.ok) return json({ success: false, message: out.message }, 400);
     return json({ success: true, result: out.result });
+  }
+
+  // 各目标的下一次执行时间（页面展示用）
+  if (rest === '/next-runs' && method === 'GET') {
+    const next = await getNextRuns(env, await getTargets(env));
+    return json({ success: true, next });
   }
 
   // 最近调用日志
