@@ -6,13 +6,14 @@
  *   GET    /api/api-calls          读取目标列表
  *   PUT    /api/api-calls          保存目标列表（整体替换）
  *   POST   /api/api-calls/run      手动触发一次全部启用的目标
+ *   POST   /api/api-calls/test     测试单个目标（不落库、不写日志）
  *   GET    /api/api-calls/logs     最近调用日志 ?limit=30
  *
  * 鉴权：由 router.js 在调用本文件前统一校验（需登录），与既有路由一致。
  *
  */
 
-import { getTargets, saveTargets, runApiCalls, getRecentLogs } from '../../services/api-caller.js';
+import { getTargets, saveTargets, runApiCalls, testTarget, getRecentLogs } from '../../services/api-caller.js';
 
 /** 标准 JSON 响应 */
 function json(data, status = 200) {
@@ -56,6 +57,19 @@ export async function handleApiCallRoutes(request, env, path) {
   if (rest === '/run' && method === 'POST') {
     const entry = await runApiCalls(env);
     return json({ success: true, entry });
+  }
+
+  // 测试单个目标（编辑/新增弹窗里的「测试」按钮）
+  if (rest === '/test' && method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ success: false, message: '请求体不是合法 JSON' }, 400);
+    }
+    const out = await testTarget(env, body && body.target);
+    if (!out.ok) return json({ success: false, message: out.message }, 400);
+    return json({ success: true, result: out.result });
   }
 
   // 最近调用日志

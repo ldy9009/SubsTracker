@@ -123,6 +123,17 @@
     }
     .toast-ok   { background: linear-gradient(135deg, #16a34a, #22c55e); }
     .toast-err  { background: linear-gradient(135deg, #dc2626, #ef4444); }
+    /* ── 新增/编辑弹窗 ── */
+    .modal-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    html.dark .modal-card { background: var(--dark-bg-secondary); color: #e5e7eb; }
+    html.dark .modal-card .text-gray-800 { color: #e5e7eb; }
+    #modalOverlay { transition: opacity 0.2s ease; }
     /* ── 空状态 ── */
     .empty-state { text-align: center; padding: 3rem 1rem; }
     .empty-state .empty-icon {
@@ -234,9 +245,6 @@
           <button id="runBtn" class="btn bg-white text-indigo-700 hover:bg-indigo-50 shadow-md">
             <i class="fas fa-play"></i>立即执行
           </button>
-          <button id="saveBtn" class="btn bg-indigo-500 bg-opacity-40 text-white border border-white border-opacity-40 hover:bg-opacity-60">
-            <i class="fas fa-save"></i>保存配置
-          </button>
           <button id="reloadBtn" class="btn bg-white bg-opacity-10 text-white border border-white border-opacity-30 hover:bg-opacity-25">
             <i class="fas fa-sync"></i>刷新
           </button>
@@ -324,6 +332,65 @@
     </div>
   </div>
 
+  <!-- 新增/编辑目标弹窗 -->
+  <div id="modalOverlay" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.45);">
+    <div class="modal-card w-full max-w-xl">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <h3 id="modalTitle" class="section-title text-sm">
+          <span class="sec-icon"><i class="fas fa-bullseye"></i></span>新增目标
+        </h3>
+        <button id="modalCloseX" type="button" class="text-gray-400 hover:text-gray-600 transition p-1" title="关闭">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="px-5 py-4 space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1.5">目标名称</label>
+          <input id="m-name" class="field-input" placeholder="如 Render 保活">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1.5">请求 URL</label>
+          <div class="relative">
+            <i class="fas fa-link absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+            <input id="m-url" class="field-input mono pl-8" placeholder="完整 URL，如 https://xxx.onrender.com/keepalive?token=xxx">
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1.5">请求方法</label>
+            <select id="m-method" class="field-input mono font-bold text-xs"></select>
+          </div>
+          <div class="flex items-end pb-1">
+            <label class="flex items-center text-xs text-gray-700 cursor-pointer select-none bg-gray-50 px-3 py-2.5 rounded-lg hover:bg-gray-100 transition">
+              <input type="checkbox" id="m-enabled" class="mr-1.5 accent-indigo-600">启用（停用后不参与调度与「立即执行」）
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-clock mr-1 text-gray-400"></i>调度表达式（分 时 日 月 周，按系统时区计算）</label>
+          <div class="flex flex-wrap gap-1.5 mb-1.5" id="modalPresets"></div>
+          <input id="m-cron" class="field-input mono" placeholder="*/10 * * * *">
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-key mr-1 text-gray-400"></i>Headers（每行一条 Key: Value）</label>
+            <textarea id="m-headers" rows="2" class="field-input mono text-xs" placeholder="Authorization: Bearer xxx"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-file-code mr-1 text-gray-400"></i>Body（仅 POST/PUT/DELETE 生效）</label>
+            <textarea id="m-body" rows="2" class="field-input mono text-xs" placeholder='{"ts": 1}'></textarea>
+          </div>
+        </div>
+        <div id="modalTestResult"></div>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+        <button id="modalCancelBtn" type="button" class="btn btn-plain"><i class="fas fa-xmark"></i>取消</button>
+        <button id="modalTestBtn" type="button" class="btn btn-ghost"><i class="fas fa-bolt"></i>测试</button>
+        <button id="modalSaveBtn" type="button" class="btn btn-primary"><i class="fas fa-save"></i>保存</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/lib/api-client.js"></script>
   <script>
     /**
@@ -363,7 +430,22 @@
       }, 3000);
     }
 
-    // ─── 目标编辑区 ───
+    // ─── 目标列表（只读展示 + 行内 测试/编辑/删除）───
+    const METHOD_COLORS = {
+      GET:    'background:#eef2ff;color:#4f46e5;',
+      POST:   'background:#f0fdf4;color:#15803d;',
+      PUT:    'background:#fffbeb;color:#b45309;',
+      HEAD:   'background:#fdf4ff;color:#a21caf;',
+      DELETE: 'background:#fef2f2;color:#b91c1c;'
+    };
+    const CRON_HINTS = {
+      '* * * * *': '每分钟',
+      '*/5 * * * *': '每 5 分钟',
+      '*/10 * * * *': '每 10 分钟',
+      '*/30 * * * *': '每 30 分钟',
+      '0 * * * *': '每小时'
+    };
+
     function renderTargets() {
       const wrap = document.getElementById('targetsWrap');
       if (!targets.length) {
@@ -375,101 +457,84 @@
         return;
       }
       wrap.innerHTML = targets.map((t, i) => {
-        const methodColors = {
-          GET:    'background:#eef2ff;color:#4f46e5;',
-          POST:   'background:#f0fdf4;color:#15803d;',
-          PUT:    'background:#fffbeb;color:#b45309;',
-          HEAD:   'background:#fdf4ff;color:#a21caf;',
-          DELETE: 'background:#fef2f2;color:#b91c1c;'
-        };
+        const cronHint = CRON_HINTS[t.cron] || '';
         return '<div class="target-card' + (t.enabled ? '' : ' is-disabled') + '" data-idx="' + i + '">'
           + '<div class="p-4 pl-5">'
-          + '<div class="flex flex-wrap items-center gap-3 mb-3">'
+          + '<div class="flex flex-wrap items-center gap-2.5 mb-2.5">'
           + '  <span class="text-xs font-bold text-gray-400 mono">#' + (i + 1) + '</span>'
-          + '  <input data-f="name" value="' + escapeHtml(t.name) + '" placeholder="目标名称，如 Render 保活" class="field-input flex-1 min-w-[140px] font-medium">'
-          + '  <select data-f="method" class="field-input mono font-bold text-xs" style="width:auto;padding-right:0.5rem;' + (methodColors[t.method] || '') + '">'
-          + ['GET', 'POST', 'PUT', 'HEAD', 'DELETE'].map(m => '<option' + (m === t.method ? ' selected' : '') + '>' + m + '</option>').join('')
-          + '  </select>'
-          + '  <label class="flex items-center text-sm text-gray-700 cursor-pointer select-none bg-gray-50 px-3 py-2 rounded-lg hover:bg-gray-100 transition">'
-          + '    <input type="checkbox" data-f="enabled" class="mr-1.5 accent-indigo-600"' + (t.enabled ? ' checked' : '') + '>启用'
-          + '  </label>'
-          + '  <button data-act="del" class="text-red-500 hover:text-red-700 text-sm font-medium transition px-2 py-1.5 rounded-lg hover:bg-red-50" title="删除该目标"><i class="fas fa-trash"></i></button>'
+          + '  <span class="font-semibold text-gray-800 text-base break-all">' + escapeHtml(t.name || '未命名目标') + '</span>'
+          + '  <span class="badge mono text-[10px]" style="' + (METHOD_COLORS[t.method] || '') + '">' + escapeHtml(t.method) + '</span>'
+          + (t.enabled
+              ? '<span class="badge badge-ok"><i class="fas fa-check text-[10px]"></i>启用</span>'
+              : '<span class="badge bg-gray-100 text-gray-500"><i class="fas fa-pause text-[10px]"></i>停用</span>')
+          + '  <span class="ml-auto flex items-center gap-1.5">'
+          + '    <button type="button" data-act="test" class="btn btn-ghost text-xs py-1.5 px-3"><i class="fas fa-bolt"></i>测试</button>'
+          + '    <button type="button" data-act="edit" class="btn btn-plain text-xs py-1.5 px-3"><i class="fas fa-pen"></i>编辑</button>'
+          + '    <button type="button" data-act="del" class="text-red-500 hover:text-red-700 text-sm font-medium transition px-2 py-1.5 rounded-lg hover:bg-red-50" title="删除该目标"><i class="fas fa-trash"></i></button>'
+          + '  </span>'
           + '</div>'
-          + '<div class="relative mb-3">'
-          + '  <i class="fas fa-link absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>'
-          + '  <input data-f="url" value="' + escapeHtml(t.url) + '" placeholder="完整 URL，如 https://xxx.onrender.com/healthz" class="field-input mono pl-8">'
-          + '</div>'
-          + '<div class="mb-2">'
-          + '  <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-clock mr-1 text-gray-400"></i>调度表达式（分 时 日 月 周，按系统时区计算）</label>'
-          + '  <div class="flex flex-wrap gap-1.5 mb-1.5" data-role="presets">'
-          + [['每分钟', '* * * * *'], ['每 5 分钟', '*/5 * * * *'], ['每 10 分钟', '*/10 * * * *'], ['每 30 分钟', '*/30 * * * *'], ['每小时', '0 * * * *'], ['每天 8 点', '0 8 * * *']].map(p =>
-              '<button type="button" data-act="preset" data-cron="' + p[1] + '" class="text-xs px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">' + p[0] + '</button>'
-            ).join('')
-          + '  </div>'
-          + '  <input data-f="cron" value="' + escapeHtml(t.cron) + '" placeholder="*/10 * * * *" class="field-input mono">'
-          + '</div>'
-          + '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">'
-          + '  <div>'
-          + '    <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-key mr-1 text-gray-400"></i>Headers（每行一条 Key: Value）</label>'
-          + '    <textarea data-f="headers" rows="2" class="field-input mono text-xs" placeholder="Authorization: Bearer xxx">' + escapeHtml(t.headers) + '</textarea>'
-          + '  </div>'
-          + '  <div>'
-          + '    <label class="block text-xs font-medium text-gray-500 mb-1.5"><i class="fas fa-file-code mr-1 text-gray-400"></i>Body（仅 POST/PUT/DELETE 生效）</label>'
-          + '    <textarea data-f="body" rows="2" class="field-input mono text-xs" placeholder=\'{"ts": 1}\'>' + escapeHtml(t.body) + '</textarea>'
-          + '  </div>'
+          + '<div class="mono text-xs text-gray-600 break-all mb-1.5"><i class="fas fa-link mr-1.5 text-gray-300"></i>' + escapeHtml(t.url) + '</div>'
+          + '<div class="text-xs text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1">'
+          + '  <span><i class="fas fa-clock mr-1.5 text-gray-300"></i><span class="mono">' + escapeHtml(t.cron) + '</span>'
+          + (cronHint ? '<span class="text-gray-400 ml-1">（' + cronHint + '）</span>' : '') + '</span>'
+          + (t.headers ? '<span><i class="fas fa-key mr-1.5 text-gray-300"></i>自定义 Headers</span>' : '')
+          + (t.body ? '<span><i class="fas fa-file-code mr-1.5 text-gray-300"></i>带 Body</span>' : '')
           + '</div>'
           + '</div>'
           + '</div>';
       }).join('');
 
-      wrap.querySelectorAll('[data-act="del"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = Number(btn.closest('[data-idx]').dataset.idx);
-          targets.splice(idx, 1);
-          renderTargets();
-          toast('已移除目标（保存配置后生效）', true);
-        });
-      });
-      wrap.querySelectorAll('[data-act="preset"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const input = btn.closest('[data-idx]').querySelector('[data-f="cron"]');
-          if (input) input.value = btn.dataset.cron;
-        });
-      });
-      wrap.querySelectorAll('select[data-f="method"]').forEach(sel => {
-        sel.addEventListener('change', () => {
-          const card = sel.closest('[data-idx]');
-          const idx = Number(card.dataset.idx);
-          targets[idx].method = sel.value;
-          const methodColors = {
-            GET: 'background:#eef2ff;color:#4f46e5;', POST: 'background:#f0fdf4;color:#15803d;',
-            PUT: 'background:#fffbeb;color:#b45309;', HEAD: 'background:#fdf4ff;color:#a21caf;',
-            DELETE: 'background:#fef2f2;color:#b91c1c;'
-          };
-          sel.style.cssText = 'width:auto;padding-right:0.5rem;' + (methodColors[sel.value] || '');
-        });
-      });
-      wrap.querySelectorAll('input[data-f="enabled"]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          cb.closest('[data-idx]').classList.toggle('is-disabled', !cb.checked);
-        });
+      wrap.querySelectorAll('[data-act]').forEach(btn => {
+        const act = btn.dataset.act;
+        const idx = Number(btn.closest('[data-idx]').dataset.idx);
+        if (act === 'del') {
+          btn.addEventListener('click', () => deleteTarget(idx));
+        } else if (act === 'edit') {
+          btn.addEventListener('click', () => openModal(targets[idx]));
+        } else if (act === 'test') {
+          btn.addEventListener('click', () => testTargetFromList(btn, targets[idx]));
+        }
       });
     }
 
-    function collectTargets() {
-      document.querySelectorAll('#targetsWrap [data-idx]').forEach(card => {
-        const idx = Number(card.dataset.idx);
-        const get = f => card.querySelector('[data-f="' + f + '"]');
-        if (!targets[idx]) return;
-        targets[idx].name = get('name').value;
-        targets[idx].url = get('url').value.trim();
-        targets[idx].method = get('method').value;
-        targets[idx].cron = get('cron').value.trim() || '*/10 * * * *';
-        targets[idx].headers = get('headers').value;
-        targets[idx].body = get('body').value;
-        targets[idx].enabled = get('enabled').checked;
-      });
-      return targets;
+    /** 整体保存目标列表到 KV（编辑/新增/删除后立即生效） */
+    async function persistTargets(list) {
+      const data = await ApiClient.put('/api/api-calls', { targets: list });
+      targets = (data && data.targets) || [];
+      renderTargets();
+      const el = document.getElementById('metricEnabled');
+      if (el) el.textContent = targets.filter(t => t.enabled).length;
+    }
+
+    async function deleteTarget(idx) {
+      const t = targets[idx];
+      if (!t) return;
+      if (!confirm('确定删除目标「' + (t.name || '未命名目标') + '」？删除后立即生效。')) return;
+      try {
+        await persistTargets(targets.filter((_, i) => i !== idx));
+        toast('目标已删除', true);
+      } catch (err) {
+        toast('删除失败：' + err.message, false);
+      }
+    }
+
+    async function testTargetFromList(btn, t) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>测试中';
+      try {
+        const data = await ApiClient.post('/api/api-calls/test', { target: t });
+        const r = (data && data.result) || {};
+        if (r.status === 'success') {
+          toast('测试成功：HTTP ' + r.httpStatus + ' · ' + r.durationMs + 'ms', true);
+        } else {
+          toast('测试失败：' + (r.error || ('HTTP ' + r.httpStatus) || '未知错误'), false);
+        }
+      } catch (err) {
+        toast('测试失败：' + err.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-bolt"></i>测试';
+      }
     }
 
     async function loadTargets() {
@@ -482,14 +547,108 @@
       }
     }
 
-    async function saveTargets() {
+    // ─── 新增/编辑弹窗 ───
+    let modalIdx = -1; // -1 = 新增；>=0 = 编辑 targets[modalIdx]
+
+    function openModal(t) {
+      const get = f => document.getElementById('m-' + f);
+      modalIdx = t ? targets.indexOf(t) : -1;
+      get('name').value = t ? t.name : '';
+      get('url').value = t ? t.url : '';
+      get('method').value = t ? t.method : 'GET';
+      get('cron').value = t ? t.cron : '*/10 * * * *';
+      get('headers').value = t ? t.headers : '';
+      get('body').value = t ? t.body : '';
+      get('enabled').checked = t ? t.enabled : true;
+      document.getElementById('modalTitle').innerHTML =
+        '<span class="sec-icon"><i class="fas fa-bullseye"></i></span>' + (t ? '编辑目标' : '新增目标');
+      document.getElementById('modalTestResult').innerHTML = '';
+      document.getElementById('modalOverlay').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => get('name').focus(), 50);
+    }
+
+    function closeModal() {
+      document.getElementById('modalOverlay').classList.add('hidden');
+      document.body.style.overflow = '';
+      modalIdx = -1;
+    }
+
+    function collectModal() {
+      const get = f => document.getElementById('m-' + f);
+      return {
+        id: modalIdx >= 0 && targets[modalIdx] ? targets[modalIdx].id : (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+        name: get('name').value,
+        url: get('url').value.trim(),
+        method: get('method').value,
+        cron: get('cron').value.trim() || '*/10 * * * *',
+        headers: get('headers').value,
+        body: get('body').value,
+        enabled: get('enabled').checked
+      };
+    }
+
+    /** 把弹窗「测试」的真实响应渲染到结果区 */
+    function renderTestResult(r) {
+      const box = document.getElementById('modalTestResult');
+      if (!r) { box.innerHTML = ''; return; }
+      const okPart = r.status === 'success'
+        ? '<span class="badge badge-ok"><i class="fas fa-check text-[10px]"></i>成功</span>'
+          + '<span class="badge bg-gray-100 text-gray-600 mono text-[10px]">HTTP ' + r.httpStatus + '</span>'
+          + '<span class="text-xs text-gray-500 mono">' + r.durationMs + 'ms</span>'
+        : '<span class="badge badge-fail"><i class="fas fa-xmark text-[10px]"></i>失败</span>'
+          + (r.error
+              ? '<span class="text-xs text-red-600">' + escapeHtml(r.error) + '</span>'
+              : '<span class="badge bg-gray-100 text-gray-600 mono text-[10px]">HTTP ' + r.httpStatus + '</span>'
+                + '<span class="text-xs text-gray-500 mono">' + r.durationMs + 'ms</span>');
+      box.innerHTML = '<div class="rounded-xl border border-gray-100 bg-gray-50 p-3 mt-3 space-y-2">'
+        + '<div class="flex flex-wrap items-center gap-2">' + okPart + '</div>'
+        + (r.responseSnippet
+            ? '<details><summary class="cursor-pointer text-gray-500 hover:text-indigo-600 text-xs">响应片段</summary>'
+              + '<pre class="raw-pre text-xs bg-white p-2 mt-1 rounded-lg border border-gray-100">' + escapeHtml(r.responseSnippet) + '</pre></details>'
+            : '')
+        + '</div>';
+    }
+
+    async function modalTest() {
+      const btn = document.getElementById('modalTestBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>测试中…';
+      document.getElementById('modalTestResult').innerHTML =
+        '<div class="text-xs text-gray-400 mt-3"><i class="fas fa-spinner fa-spin mr-1"></i>请求中…</div>';
       try {
-        const data = await ApiClient.put('/api/api-calls', { targets: collectTargets() });
-        targets = (data && data.targets) || [];
-        renderTargets();
+        const data = await ApiClient.post('/api/api-calls/test', { target: collectModal() });
+        renderTestResult(data && data.result);
+      } catch (err) {
+        document.getElementById('modalTestResult').innerHTML =
+          '<div class="text-xs text-red-600 mt-3"><i class="fas fa-triangle-exclamation mr-1"></i>' + escapeHtml(err.message) + '</div>';
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-bolt"></i>测试';
+      }
+    }
+
+    async function modalSave() {
+      const t = collectModal();
+      if (!/^https?:\/\//i.test(t.url)) {
+        toast('URL 无效：需以 http:// 或 https:// 开头', false);
+        return;
+      }
+      const btn = document.getElementById('modalSaveBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>保存中…';
+      try {
+        const list = targets.slice();
+        if (modalIdx >= 0) list[modalIdx] = t; else list.push(t);
+        await persistTargets(list);
         toast('配置已保存，下一轮 Cron 生效', true);
+        closeModal();
+        loadLogs(); // 顺带刷新概览与日志
       } catch (err) {
         toast('保存失败：' + err.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i>保存';
       }
     }
 
@@ -671,18 +830,39 @@
       await loadTargets();
       await loadLogs();
 
-      document.getElementById('addBtn').addEventListener('click', () => {
-        targets.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), name: '', url: '', method: 'GET', cron: '*/10 * * * *', headers: '', body: '', enabled: true });
-        renderTargets();
-        const cards = document.querySelectorAll('#targetsWrap [data-idx]');
-        const last = cards[cards.length - 1];
-        if (last) last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // 弹窗：请求方法下拉与调度预设
+      const methodSel = document.getElementById('m-method');
+      methodSel.innerHTML = ['GET', 'POST', 'PUT', 'HEAD', 'DELETE'].map(m => '<option value="' + m + '">' + m + '</option>').join('');
+      document.getElementById('modalPresets').innerHTML =
+        [['每分钟', '* * * * *'], ['每 5 分钟', '*/5 * * * *'], ['每 10 分钟', '*/10 * * * *'], ['每 30 分钟', '*/30 * * * *'], ['每小时', '0 * * * *'], ['每天 8 点', '0 8 * * *']].map(p =>
+          '<button type="button" data-act="preset" data-cron="' + p[1] + '" class="text-xs px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">' + p[0] + '</button>'
+        ).join('');
+      document.getElementById('modalPresets').querySelectorAll('[data-act="preset"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const input = document.getElementById('m-cron');
+          if (input) input.value = btn.dataset.cron;
+        });
       });
-      document.getElementById('saveBtn').addEventListener('click', saveTargets);
+
+      document.getElementById('addBtn').addEventListener('click', () => openModal(null));
       document.getElementById('runBtn').addEventListener('click', runNow);
       document.getElementById('reloadBtn').addEventListener('click', async () => {
         await loadTargets();
         await loadLogs();
+      });
+
+      // 弹窗按钮：取消 / 测试 / 保存；Esc 与点击遮罩关闭
+      document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
+      document.getElementById('modalCloseX').addEventListener('click', closeModal);
+      document.getElementById('modalTestBtn').addEventListener('click', modalTest);
+      document.getElementById('modalSaveBtn').addEventListener('click', modalSave);
+      document.getElementById('modalOverlay').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('modalOverlay')) closeModal();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('modalOverlay').classList.contains('hidden')) {
+          closeModal();
+        }
       });
     })();
   </script>

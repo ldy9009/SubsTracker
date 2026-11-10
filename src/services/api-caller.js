@@ -168,6 +168,22 @@ async function callTarget(target) {
 }
 
 /**
+ * 测试单个目标：按弹窗里当前填写的内容真实调用一次。
+ * 不落库、不写调用日志，仅供前端「测试」按钮使用。
+ *
+ * @param {{ SUBSCRIPTIONS_KV: KVNamespace }} _env 未使用（保留参数位以便与其它服务函数签名一致）
+ * @param {any} raw 前端提交的目标字段（可只填部分）
+ * @returns {Promise<{ok: boolean, message?: string, result?: any}>}
+ */
+export async function testTarget(_env, raw) {
+  const normalized = normalizeTargets([raw]);
+  if (!normalized.length) {
+    return { ok: false, message: 'URL 无效：需以 http:// 或 https:// 开头' };
+  }
+  return { ok: true, result: await callTarget(normalized[0]) };
+}
+
+/**
  * 执行定时调用并写一条聚合日志。
  *
  * @param {{ SUBSCRIPTIONS_KV: KVNamespace }} env
