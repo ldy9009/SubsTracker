@@ -6,6 +6,7 @@
   <title>通知历史 - 订阅管理系统</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   ${themeResources}
   <style>
     /* 与其他 admin 页保持一致的小屏隐藏时钟规则 */
@@ -33,7 +34,7 @@
       <div class="flex justify-between h-16">
         <div class="flex items-center shrink-0">
           <div class="flex items-center">
-            <i class="fas fa-calendar-check text-indigo-600 text-2xl mr-2"></i>
+            <svg class="mr-2" width="26" height="26" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="#4f46e5"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="12" y="14" width="24" height="21" rx="3.5"/><path d="M17 10.5v6"/><path d="M31 10.5v6"/><path d="M12 20h24"/><path d="M15.5 28.5h4.5l2.5-5 3.5 9 2.5-5h4.5"/></g></svg>
             <span class="font-bold text-xl text-gray-800">订阅管理系统</span>
           </div>
           <span id="systemTimeDisplay" class="ml-4 text-base text-indigo-600 font-normal hidden md:block pt-1"></span>
