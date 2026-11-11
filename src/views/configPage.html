@@ -1049,60 +1049,13 @@
     }
     
     function toggleNotificationConfigs(enabledNotifiers) {
-      const telegramConfig = document.getElementById('telegramConfig');
-      const ntfyConfig = document.getElementById('ntfyConfig');
-      const notifyxConfig = document.getElementById('notifyxConfig');
-      const webhookConfig = document.getElementById('webhookConfig');
-      const wechatbotConfig = document.getElementById('wechatbotConfig');
-      const emailConfig = document.getElementById('emailConfig');
-      const barkConfig = document.getElementById('barkConfig');
-      const gotifyConfig = document.getElementById('gotifyConfig');
-      const serverchanConfig = document.getElementById('serverchanConfig');
-      const pushplusConfig = document.getElementById('pushplusConfig');
-      const wpushConfig = document.getElementById('wpushConfig');
-
-      // 重置所有配置区域
-      [telegramConfig, notifyxConfig, webhookConfig, wechatbotConfig, emailConfig, barkConfig, gotifyConfig, serverchanConfig, pushplusConfig, ntfyConfig, wpushConfig].forEach(config => {
-        config.classList.remove('active', 'inactive');
-        config.classList.add('inactive');
-      });
-
-      // 激活选中的配置区域
-      enabledNotifiers.forEach(type => {
-        if (type === 'telegram') {
-          telegramConfig.classList.remove('inactive');
-          telegramConfig.classList.add('active');
-        } else if (type === 'notifyx') {
-          notifyxConfig.classList.remove('inactive');
-          notifyxConfig.classList.add('active');
-        } else if (type === 'webhook') {
-          webhookConfig.classList.remove('inactive');
-          webhookConfig.classList.add('active');
-        } else if (type === 'wechatbot') {
-          wechatbotConfig.classList.remove('inactive');
-          wechatbotConfig.classList.add('active');
-        } else if (type === 'email') {
-          emailConfig.classList.remove('inactive');
-          emailConfig.classList.add('active');
-        } else if (type === 'bark') {
-          barkConfig.classList.remove('inactive');
-          barkConfig.classList.add('active');
-        } else if (type === 'gotify') {
-          gotifyConfig.classList.remove('inactive');
-          gotifyConfig.classList.add('active');
-        } else if (type === 'ntfy' && ntfyConfig) {
-          ntfyConfig.classList.remove('inactive');
-          ntfyConfig.classList.add('active');
-        } else if (type === 'serverchan') {
-          serverchanConfig.classList.remove('inactive');
-          serverchanConfig.classList.add('active');
-        } else if (type === 'pushplus') {
-          pushplusConfig.classList.remove('inactive');
-          pushplusConfig.classList.add('active');
-        } else if (type === 'wpush' && wpushConfig) {
-          wpushConfig.classList.remove('inactive');
-          wpushConfig.classList.add('active');
-        }
+      // 勾选了才显示对应通知方式的配置区，未勾选的直接隐藏（active/inactive 类保留给样式用）
+      document.querySelectorAll('input[name="enabledNotifiers"]').forEach(cb => {
+        const sec = document.getElementById(cb.value + 'Config');
+        if (!sec) return;
+        sec.style.display = cb.checked ? '' : 'none';
+        sec.classList.toggle('active', cb.checked);
+        sec.classList.toggle('inactive', !cb.checked);
       });
     }
 
